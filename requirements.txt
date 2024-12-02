@@ -1,0 +1,6 @@
+numpy
+matplotlib
+pybind11
+nbtlib
+#litemapymaybebaby
+noise

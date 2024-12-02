@@ -1,0 +1,16 @@
+.venv/
+.vscode/
+build/
+dist/
+bresenham3d.egg-info
+__pycache__/
+bresenham3d.cpython-312-x86_64-linux-gnu.so
+schematics/
+logdir/
+gifs/
+/dreamerv3-torch/configs.yaml
+old_gifs/
+maps/
+dreamerv3-torch/configs.yaml
+libbresenham3d.so
+dreamerv3-torch/configs.yaml
