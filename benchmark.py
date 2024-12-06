@@ -13,6 +13,7 @@ import numpy as np
 from scipy.ndimage import binary_dilation
 from scipy.spatial import KDTree
 
+
 def efficient_frontier_exploration(voxel_map, agent_positions, search_radius=20):
     """
     Efficiently compute waypoints for multiple agents using frontier-based exploration.
@@ -65,29 +66,35 @@ def efficient_frontier_exploration(voxel_map, agent_positions, search_radius=20)
 
     return waypoints
 
-def deterministic_benchmark(exploration_map, drone_positions):
+def deterministic_benchmark(exploration_map, drone_positions,lidar_range):
     """
     Determine the next waypoint for each drone for exploration.
     
     Parameters:
         voxel_map (np.ndarray): 3D binary voxel map (0: unexplored, 1: explored).
         drone_positions (list): List of (x, y, z) tuples for drone positions.
+        lidar_range (int): Range of the lidar sensor.
     
     Returns:
         list: List of (x, y, z) waypoints for each drone.
     """
-    def find_closest_unexplored(drone_pos, exploration_map):
-        """Find the closest unexplored voxel to the given drone position."""
-        unexplored_voxels = np.argwhere(exploration_map == 0)  # Indices of unexplored voxels
-        if len(unexplored_voxels) == 0:
-            return drone_pos  # No unexplored voxels, return current position
-        
-        distances = np.linalg.norm(unexplored_voxels - np.array(drone_pos), axis=1)
-        closest_voxel = unexplored_voxels[np.argmin(distances)]
-        return tuple(closest_voxel)
+    available_voxels = np.argwhere(exploration_map == 0)  # Indices of unexplored voxels
 
-    # Compute waypoints for all drones
-    waypoints = [find_closest_unexplored(pos, exploration_map) for pos in drone_positions]
+    waypoints = []
+
+
+    for i,pos in enumerate(drone_positions):
+        if len(available_voxels) == 0:
+            # No unexplored voxels left
+            return drone_positions        
+
+        distances = np.linalg.norm(available_voxels - np.array(pos), axis=1)
+        closest_voxel = available_voxels[np.argmin(distances)]
+
+        # Remove everything within the lidar range from the available voxels so that the drones don't collide
+        available_voxels = available_voxels[np.linalg.norm(available_voxels - np.array(pos), axis=1) > lidar_range]
+        waypoints.append(tuple(closest_voxel))
+
     return waypoints
 
 def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
@@ -119,7 +126,7 @@ def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
 
             # print(f"Waypoints: {waypoints}")
         else:
-            waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions())
+            waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions(), Agents.lidar_range)
             # waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
 
         total_steps_performed = Agents.move_all_drones(waypoints)
@@ -144,7 +151,7 @@ def execute_deterministic_benchmark(Agents, max_steps, exploration_percentage):
     while np.sum(Agents.current_voxel_map) <= exploration_percentage * surface_map_sum and step < max_steps:
         # print(f"Step {step}  |  Exploration: {np.sum(Agents.current_voxel_map) / np.sum(Agents.gt_surface_map) * 100:.2f}%")
         step += 1
-        waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions())
+        waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions(), Agents.lidar_range)
         # waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
 
         total_steps_performed = Agents.move_all_drones(waypoints)
