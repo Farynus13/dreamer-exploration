@@ -57,7 +57,7 @@ if __name__ == "__main__":
     agent_state = None # no initial state
     step = 0
     gt_surface_sum = np.sum(Agents.gt_surface_map)
-    while np.sum(Agents.current_voxel_map) <= 1 * gt_surface_sum and step < 120:
+    while np.sum(Agents.current_voxel_map) <= 0.99 * gt_surface_sum and step < 120:
         print(f"Step {step}  |  Exploration: {np.sum(Agents.current_voxel_map) / gt_surface_sum * 100:.2f}%")
         step += 1
         if np.sum(Agents.current_voxel_map) < 0.9 * gt_surface_sum:
@@ -71,8 +71,8 @@ if __name__ == "__main__":
 
             waypoints = Agents.action_to_waypoint(action)
         else:
-            # waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions())
-            waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
+            waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions(), Agents.lidar_range)
+            # waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
         # print(f"Waypoints: {waypoints}")
         Agents.move_all_drones(waypoints)
         

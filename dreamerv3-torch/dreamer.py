@@ -155,7 +155,7 @@ def make_env(config, mode, id):
     elif suite == "drone":
         import envs.drone as drone
             
-        env = drone.Drone(task, config.action_repeat, config.size, seed=config.seed + id)
+        env = drone.Drone(task, id, config.size, seed=config.seed + id)
         
         env = wrappers.NormalizeActions(env)
     elif suite == "atari":
