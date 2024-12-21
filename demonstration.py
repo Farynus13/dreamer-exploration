@@ -5,7 +5,7 @@ from visualisations import create_gif_from_images
 import os
 from our_dreamer.dreamer_model import get_model
 from map_tools import perlin_noise_2Dmask
-from benchmark import deterministic_benchmark,efficient_frontier_exploration
+from benchmark import deterministic_benchmark
 import argparse
 
 # Example usage:

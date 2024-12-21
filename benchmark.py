@@ -10,61 +10,6 @@ from tqdm import tqdm
 # Example usage:
 
 import numpy as np
-from scipy.ndimage import binary_dilation
-from scipy.spatial import KDTree
-
-
-def efficient_frontier_exploration(voxel_map, agent_positions, search_radius=20):
-    """
-    Efficiently compute waypoints for multiple agents using frontier-based exploration.
-    
-    Args:
-        voxel_map (np.ndarray): 3D array where 0 = explored and 1 = unexplored.
-        agent_positions (list): List of tuples [(x, y, z), ...] representing agent positions.
-        search_radius (int): Radius around each agent to search for frontiers.
-        
-    Returns:
-        List of tuples: Waypoints [(x, y, z), ...] for each agent.
-    """
-    # Get the shape of the voxel map
-    shape = voxel_map.shape
-
-    # Create a mask for unexplored areas
-    unexplored_mask = voxel_map == 1
-
-    # Dilate unexplored areas to find frontiers
-    frontier_mask = binary_dilation(unexplored_mask) & ~unexplored_mask
-
-    # Get all frontier voxel indices
-    frontier_voxels = np.argwhere(frontier_mask)
-    if len(frontier_voxels) == 0:
-        # No frontiers, return agent positions (no movement)
-        return agent_positions
-
-    # Build a KD-Tree for fast nearest neighbor search
-    frontier_tree = KDTree(frontier_voxels)
-
-    # Determine waypoints for agents
-    waypoints = []
-    for agent_pos in agent_positions:
-        # Convert agent position to numpy array
-        agent_pos = np.array(agent_pos)
-
-        # Query the KD-Tree for nearby frontiers within the search radius
-        nearby_frontiers = frontier_tree.query_ball_point(agent_pos, search_radius)
-
-        if nearby_frontiers:
-            # If frontiers are found, select the closest one
-            nearest_idx = min(nearby_frontiers, key=lambda idx: np.linalg.norm(frontier_voxels[idx] - agent_pos))
-            waypoint = tuple(frontier_voxels[nearest_idx])
-        else:
-            # No frontiers within the search radius, fallback to the nearest overall
-            _, nearest_idx = frontier_tree.query(agent_pos)
-            waypoint = tuple(frontier_voxels[nearest_idx])
-
-        waypoints.append(waypoint)
-
-    return waypoints
 
 def deterministic_benchmark(exploration_map, drone_positions,lidar_range):
     """
@@ -85,15 +30,14 @@ def deterministic_benchmark(exploration_map, drone_positions,lidar_range):
 
     for i,pos in enumerate(drone_positions):
         if len(available_voxels) == 0:
-            # No unexplored voxels left
-            return drone_positions        
+            waypoints.append(tuple(pos))
+        else:
+            distances = np.linalg.norm(available_voxels - np.array(pos), axis=1)
+            closest_voxel = available_voxels[np.argmin(distances)]
 
-        distances = np.linalg.norm(available_voxels - np.array(pos), axis=1)
-        closest_voxel = available_voxels[np.argmin(distances)]
-
-        # Remove everything within the lidar range from the available voxels so that the drones don't collide
-        available_voxels = available_voxels[np.linalg.norm(available_voxels - np.array(pos), axis=1) > lidar_range]
-        waypoints.append(tuple(closest_voxel))
+            # Remove everything within the lidar range from the available voxels so that the drones don't collide
+            available_voxels = available_voxels[np.linalg.norm(available_voxels - np.array(pos), axis=1) > lidar_range]
+            waypoints.append(tuple(closest_voxel))
 
     return waypoints
 
@@ -114,7 +58,7 @@ def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
     while np.sum(Agents.current_voxel_map) <= exploration_percentage * surface_map_sum and step < max_steps:
         # print(f"Step {step}  |  Exploration: {np.sum(Agents.current_voxel_map) / np.sum(Agents.gt_surface_map) * 100:.2f}%")
         step += 1
-        if np.sum(Agents.current_voxel_map) < 0.9 * surface_map_sum:
+        if np.sum(Agents.current_voxel_map) < 0.99 * surface_map_sum:
             obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
             action, agent_state = model(obs, agent_state)
 

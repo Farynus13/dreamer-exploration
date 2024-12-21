@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import matplotlib
 import ctypes
-#matplotlib.use('Agg')
+matplotlib.use('Agg')
 
 
 
