@@ -83,6 +83,7 @@ class Drone(gym.Env):
       return gym.spaces.Dict(
           {
               "image": gym.spaces.Box(0, 255, self._size + (self._z_dim*self._num_drones,), dtype=np.uint8),
+              # "image": gym.spaces.Box(0, 255, self._map_size, dtype=np.uint8),
               "is_first": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
               "is_last": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
               "is_terminal": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.uint8),
@@ -106,9 +107,15 @@ class Drone(gym.Env):
       else:
         image = np.concatenate((image, views[i]), axis=2)
 
+    # image = self._agents.current_voxel_map.copy()*255
+    positions = self._agents.get_positions()
+    # for i in range(self._num_drones):
+      # x,y,z = positions[i]
+      # image[x,y,z] = 128
+
     return dict(
         image = image,
-        position = self.normalise_position(self._agents.get_positions()).flatten(),
+        position = self.normalise_position(positions).flatten(),
         is_first=bool(is_first),
         is_last=bool(is_last),
         is_terminal=bool(is_terminal)

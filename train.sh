@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Default values
-DEFAULT_LOGDIR_PATH="./logdir/drone-testing-script"
+# DEFAULT_LOGDIR_PATH="./logdir/drone-testing-script"
+DEFAULT_LOGDIR_PATH="./logdir/drone-newest-higher-train-ratio"
 DEFAULT_CONFIG_FLAGS="drone"
 
 # Assign arguments to variables with defaults
