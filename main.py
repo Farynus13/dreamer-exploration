@@ -1,27 +1,30 @@
-from raycasting import generate_lidar_rays,execute_lidar_rays, visualize_voxel_maps, visualize_lidar_rays,mock_lidar
+from raycasting import generate_lidar_rays,execute_lidar_rays, visualize_voxel_maps, visualize_lidar_rays
 from navigation_tools import a_star_3d
 import numpy as np
 import random
-from visualisations import visualize_voxel_map
+from visualisations import visualize_3d_array
 from map_tools import generate_maze, perlin_noise_2Dmask
 import matplotlib.pyplot as plt
 import os
-import matplotlib
+# import matplotlib
 import ctypes
-matplotlib.use('Agg')
+import time
+import pyvista as pv
+import sys
+#matplotlib.use('Agg')
 
 
 
 class MoveDrones:
-    def __init__(self, gt_voxel_map, start_positions,lidar_range=100, 
+    def __init__(self, gt_voxel_map, gt_surface_map, start_positions,lidar_range=100, 
                  max_steps=10,
-                 window_size=[64,64],
+                 windows_size=[64,64,3],
                  num_drones=2,
                  lidar_params={"num_h_rays":124,
                                "num_v_rays":32,
                                "fov_v":80},
                                log_images=False,
-                               img_path="gifs/"):
+                               img_path="gifs/", encoding=False):
         """
         Initializes the MoveDrones class with a voxel map and positions for each drone.
         :param voxel_map: 3D numpy array representing the voxel space.
@@ -29,9 +32,10 @@ class MoveDrones:
         """
         self.max_steps = max_steps  
         self._num_drones = num_drones
-        self._window_size = window_size
+        self._window_size = np.array(windows_size)
         self.gt_voxel_map = gt_voxel_map
         self.current_voxel_map = np.zeros_like(self.gt_voxel_map, dtype=bool)
+        self.gt_surface_map = gt_surface_map
         self.exploration_map = np.zeros_like(self.gt_voxel_map, dtype=bool)
         self.lidar_range = lidar_range
         
@@ -39,65 +43,60 @@ class MoveDrones:
         self.num_rays = self.lidar_rays.shape[0]
         self.lidar_rays_pointer = self.lidar_rays.flatten().astype(ctypes.c_int32) #One could look into not creating a copy and flattening but sending it, like voxel map
         self.lidar_rays_pointer = self.lidar_rays_pointer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
-        voxel_map_x, voxel_map_y, voxel_map_z = self.gt_voxel_map.shape
-        self.gt_voxel_map_pointer = self.gt_voxel_map.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8))
-        assert self.gt_voxel_map_pointer is not None
+        surface_map_x, surface_map_y, surface_map_z = self.gt_surface_map.shape
+        self.surface_map_pointer = self.gt_surface_map.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8))
+        self._encoding = encoding
+        assert self.surface_map_pointer is not None
         assert self.lidar_rays_pointer is not None
 
         for pos in start_positions:
-            execute_lidar_rays(self.gt_voxel_map_pointer, voxel_map_x, voxel_map_y, voxel_map_z, self.exploration_map,pos, self.lidar_range,self.lidar_rays_pointer, self.num_rays)
-            # mock_lidar(self.exploration_map,pos,self.lidar_range)
-            self.current_voxel_map[:,:,:] = self.exploration_map & self.gt_voxel_map
+            execute_lidar_rays(self.surface_map_pointer, surface_map_x, surface_map_y, surface_map_z, self.exploration_map,pos, self.lidar_range,self.lidar_rays_pointer, self.num_rays)
+            self.current_voxel_map[:,:,:] = self.exploration_map & self.gt_surface_map
         self.drones = [
-            Drone(self.gt_voxel_map,self.gt_voxel_map_pointer, self.current_voxel_map, self.exploration_map, np.array(pos), id, self.lidar_range, self.lidar_rays_pointer,self.num_rays)
+            Drone(self.gt_voxel_map,self.surface_map_pointer, self.current_voxel_map, self.exploration_map, np.array(pos), id, self.lidar_range, self.lidar_rays_pointer,self.num_rays)
             for id, pos in enumerate(start_positions)]
- 
-        self.gt_surface_map = VolumeToSurface(self.gt_voxel_map, [np.array(pos) for pos in start_positions])
 
         self.log_images = log_images
         self.img_path = img_path
         self.img_idx = 0
     
-    def get_drones_view(self, window_size=[64,64,3]):
+    def get_drones_view(self):
         positions = {id: drone.location.tolist() for id, drone in enumerate(self.drones)}
-        submap = {id: np.zeros(window_size, dtype=np.uint8) for id in positions}
+        submap = {id: np.zeros(self._window_size, dtype=bool) for id in positions}
         for id in positions:
-            x_start = max(positions[id][0] - window_size[0] // 2, 0)
-            x_end = min(positions[id][0] + window_size[0] // 2, self.current_voxel_map.shape[0])
-            y_start = max(positions[id][1] - window_size[1] // 2, 0)
-            y_end = min(positions[id][1] + window_size[1] // 2, self.current_voxel_map.shape[1])
+            x_start = max(positions[id][0] - self._window_size[0] // 2, 0)
+            x_end = min(positions[id][0] + self._window_size[0] // 2, self.current_voxel_map.shape[0])
+            y_start = max(positions[id][1] - self._window_size[1] // 2, 0)
+            y_end = min(positions[id][1] + self._window_size[1] // 2, self.current_voxel_map.shape[1])
+            z_start = max(positions[id][2] - self._window_size[2] // 2, 0)
+            z_end = min(positions[id][2] + self._window_size[2] // 2, self.current_voxel_map.shape[2])
             
             submap[id] = np.pad(
-                self.current_voxel_map[x_start:x_end, y_start:y_end, :].astype(np.uint8)*255,
-                ((max(0, -positions[id][0] + window_size[0] // 2), max(0, positions[id][0] + window_size[0] // 2 - self.current_voxel_map.shape[0])),
-                 (max(0, -positions[id][1] + window_size[1] // 2), max(0, positions[id][1] + window_size[1] // 2 - self.current_voxel_map.shape[1])),
-                 (0, 0)),
-                mode='constant', constant_values=64
+                self.current_voxel_map[x_start:x_end, y_start:y_end, z_start:z_end].astype(np.uint8),
+                ((max(0, -positions[id][0] + self._window_size[0] // 2), max(0, positions[id][0] + self._window_size[0] // 2 - self.current_voxel_map.shape[0])),
+                 (max(0, -positions[id][1] + self._window_size[1] // 2), max(0, positions[id][1] + self._window_size[1] // 2 - self.current_voxel_map.shape[1])),
+                 (max(0, -positions[id][2] + self._window_size[2] // 2), max(0, positions[id][2] + self._window_size[2] // 2 - self.current_voxel_map.shape[2]))),
+                mode='constant', constant_values=1
             )
-
+        if self._encoding:
+            arr = {id: np.zeros((self._window_size[0], self._window_size[1], 3 ), dtype=np.uint8) for id in positions}
+            for i in range(3):
+                arr[id][:, :, i] = np.packbits(submap[id][:, :, i*8:(i+1)*8], axis=-1).reshape(self._window_size[0], self._window_size[1])
+            return arr
         return submap
-            
 
     def save_current_img(self):
-        if self.img_idx % 10 == 0:
-            fig, ax = visualize_voxel_map(
-                self.current_voxel_map, show=False, drones=self.drones
-            )
-            elev = 60
-            azim = 0
-            ax.view_init(elev=elev, azim=azim)
-            ax.dist = 7
-            
-            file_path = os.path.join(self.img_path, f'{self.img_idx // 10}.png')
-            fig.savefig(file_path)
-            
-            # Explicitly clear and close the figure
-            plt.close('all')
-
-        self.img_idx += 1
+        fig = visualize_3d_array(
+            self.current_voxel_map, show=False, drones=self.drones, off_screen=True
+        )
+        if fig:
+            file_path = os.path.join(self.img_path, f'{self.img_idx}.png')
+            self.img_idx += 1
+            fig.screenshot(file_path)
+            fig.close()
         
     def _obs(self, is_first=False, is_last=False, is_terminal=False):
-        views = self.get_drones_view(self._window_size) 
+        views = self.get_drones_view() 
 
         image = None
         for i in range(self._num_drones):
@@ -139,6 +138,7 @@ class MoveDrones:
         """
         Moves all drones one by one. Each drone takes one step at a time, and the voxel map is updated after each step.
         """
+        #print(f"Moving drones to {NNwaypoints}")
         def any_steps_left(steps_per_drone):
             for steps in steps_per_drone:
                 if len(steps) == 0:
@@ -199,6 +199,7 @@ class Drone:# Drone(self.gt_voxel_map,self.gt_voxel_map_pointer, self.current_vo
         self.goal = None
         self.path = [self.location]
 
+    # Please if you really want a setter use a property <3 (Angelo)
     def set_goal(self, goal):
         """
         Set the goal for the drone to reach.
@@ -225,7 +226,7 @@ class Drone:# Drone(self.gt_voxel_map,self.gt_voxel_map_pointer, self.current_vo
         if abs(x_diff) <=1 and abs(y_diff)<=1 and abs(z_diff)<=1:
             if self.is_legal_move(next_position):
                 execute_lidar_rays(self.gt_voxel_pointer, self.map_size[0],self.map_size[1],self.map_size[2],self.exploration_map, self.location,self.lidar_range, self.lidar_rays_pointer, self.num_rays)
-                # mock_lidar(self.exploration_map,self.location,self.lidar_range)
+
                 self.location = next_position
                 self.current_voxel_map[:,:,:] = self.exploration_map & self.gt_voxel_map
 
@@ -249,6 +250,7 @@ class Drone:# Drone(self.gt_voxel_map,self.gt_voxel_map_pointer, self.current_vo
     
 
 def VolumeToSurface(volume, start_locations):
+    start_time = time.time()
     surface_map = np.zeros_like(volume, dtype=bool)
     list_of_visited_points = []
     visited = np.zeros_like(volume, dtype=bool)
@@ -276,27 +278,60 @@ def VolumeToSurface(volume, start_locations):
                     elif not visited[nx, ny, nz]:
                         visited[nx, ny, nz] = True
                         list_of_visited_points.append((nx, ny, nz))
-
+    print(f"Surface map generation took {time.time() - start_time} seconds")
     return surface_map
 
 if __name__ == "__main__":
     #ROUGH TRAINING LOOP
-    map_size = (64, 64, 2)
+    map_size = (64, 64, 24)
     voxel_map = np.zeros((map_size[0], map_size[1], map_size[2]), dtype=bool)
-    voxel_map[:,:,0] = 1
-    spawn_points = np.argwhere(voxel_map == 0)
-    start1 = spawn_points[0,:]
-    print(type(start1))
-    start2 = spawn_points[-1,:]
-    NNwaypoints = (start1, start2)
-    NNwaypoints = np.array(NNwaypoints)
-    #initialize drones
-    # print(start1, start2, NNwaypoints)
+    voxel_map[:, :, 0] = 1
+    #voxel_map[:, :, 22] = 1
+    voxel_map[:, :,23] = 1
+    # voxel_map[:, 0, :] = 1
+    # voxel_map[:, -1, :] = 1
+    # voxel_map[0, :, :] = 1
+    # voxel_map[-1, :, :] = 1
+    #visualize_voxel_map(voxel_map)
+    #voxel_map = VolumeToSurface(voxel_map, [(5, 5, 1), (5, 5, 8)])
+    # voxel_map[:,:,9]=0
+    # visualize_voxel_map(voxel_map)
+    # Add a pillar in the center
+    # center_x, center_y = map_size[0] // 2, map_size[1] // 2
+    # voxel_map[center_x, center_y, :] = 1
+    encoding = True
+    lidar_params={"num_h_rays":160,
+                               "num_v_rays":160,
+                               "fov_v":180}
+    drones = MoveDrones(voxel_map, voxel_map, [(4, 4,13)], lidar_range=100, lidar_params=lidar_params, windows_size=[8, 8, 24], encoding=encoding)
+    views = drones.get_drones_view()
+    #views = [np.zeros((8, 8, 3), dtype=np.uint8)]
+    #views[0][:,:,1] = 1
+    #drones.get_drones_view()
+    if encoding:
+        print(len(views))
+        arr = {i: np.zeros((drones._window_size[0], drones._window_size[1], 24), dtype=bool ) for i in range(len(views))}
+        for i in range(3):
+            arr[0][:, :, i*8:(i+1)*8] = np.unpackbits(views[0][:, :, i], axis=-1).reshape(drones._window_size[0], drones._window_size[1], 8)
+        print(arr[0].shape)
+    print(views[0].shape)
+    #visualize_voxel_maps(drones.current_voxel_map, drones.gt_surface_map)
+    visualize_3d_array(voxel_map)
+    #visualize_3d_array(drones.current_voxel_map)
+    np.set_printoptions(threshold=np.inf)
+    # Increase the context length of the terminal
+    np.set_printoptions(threshold=sys.maxsize)
+    print(views[0])
+    # for i in range(24):
+    #     print(arr[0][:,:,i])
+    visualize_3d_array(arr[0])
+    # visualize_3d_array(arr[1])
+    # visualize_3d_array(arr[1])
 
-    Agents = MoveDrones(voxel_map, [start1, start2], lidar_range=40)
-    submap = MoveDrones.get_drones_view(Agents)
-    #print(submap)
-    visualize_voxel_maps(Agents.current_voxel_map, Agents.gt_surface_map)
-    #move drones
-    NNwaypoints = Agents.move_all_drones((start2, start1))
-    visualize_voxel_maps(Agents.current_voxel_map, Agents.gt_surface_map)
+    # Agents = MoveDrones(voxel_map, [start1, start2], lidar_range=40)
+    # submap = MoveDrones.get_drones_view(Agents)
+    # #print(submap)
+    # visualize_voxel_maps(Agents.current_voxel_map, Agents.gt_surface_map)
+    # #move drones
+    # NNwaypoints = Agents.move_all_drones((start2, start1))
+    # visualize_voxel_maps(Agents.current_voxel_map, Agents.gt_surface_map)

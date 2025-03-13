@@ -2,6 +2,7 @@ from noise import pnoise2
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from raycasting import visualize_3d_environment, visualize_voxel_map
 
 def get_letter_matrix(letter=[]):
     """
@@ -332,3 +333,36 @@ def generate_maze(width, height,z=1):
     for i in range(z):
         maze_3d[:,:,i] = maze
     return maze_3d
+def visualize_2d_environment(grid_map):
+    """
+    Visualizes a 2D grid environment.
+    Occupied cells are colored based on their position.
+    
+    :param grid_map: 2D numpy array where 1 represents an occupied cell and 0 represents an empty cell.
+    """
+    fig, ax = plt.subplots(figsize=(7, 7))
+    
+    # Get grid dimensions
+    x_size, y_size = grid_map.shape
+    
+    for x in range(x_size):
+        for y in range(y_size):
+            if grid_map[x, y]:  # If cell is occupied
+                color = (x / x_size, y / y_size, 0.5)  # RGB based on position
+                ax.add_patch(plt.Rectangle((y, x), 1, 1, color=color))
+    
+    # Set plot limits and grid
+    ax.set_xlim(0, y_size)
+    ax.set_ylim(0, x_size)
+    ax.set_xticks(range(y_size+1))
+    ax.set_yticks(range(x_size+1))
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    
+    plt.show()
+if __name__ == "__main__":
+    voxel_map = generate_maze(64, 64, 1)
+    mask = perlin_noise_2Dmask((64, 64, 1), 12, 0.02)
+    voxel_map = np.where(mask, voxel_map, 0)
+    visualize_2d_environment(voxel_map[:, :, 0])

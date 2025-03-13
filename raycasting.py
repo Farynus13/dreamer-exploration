@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 from mpl_toolkits.mplot3d import Axes3D
+from navigation_tools import a_star_3d
+from visualisations import visualize_3d_array
 import ctypes
 # Load the shared library
 lib = ctypes.CDLL('./libbresenham3d.so')
@@ -33,7 +35,7 @@ lib.Bresenham3D.restype = ctypes.POINTER(Point3D)  # Returns a pointer to Point3
 lib.FreePoints.argtypes = [ctypes.POINTER(Point3D)]
 
 ##########################################################################################################
-def generate_lidar_rays(num_h_rays=124, num_v_rays=96,fov_v=80, lidar_range=20):
+def generate_lidar_rays(num_h_rays=32, num_v_rays=32,fov_v=120, lidar_range=8):
     fov_v = np.radians(fov_v)
     # Generate horizontal angles
     h_angles = np.linspace(0, 2*np.pi, num_h_rays, endpoint=True)
@@ -66,7 +68,7 @@ def execute_lidar_rays(gt_voxel_map_pointer, voxel_map_x, voxel_map_y, voxel_map
     for i in range(num_points.value):
         exploration_map[points_ptr[i].x, points_ptr[i].y, points_ptr[i].z] = True
     lib.FreePoints(points_ptr)
-    exploration_map[x1, y1, z1] = True  
+    exploration_map[x1, y1, z1] = True
     return exploration_map
 #############################################################################################################
 #below are functions that supported development of the above functions
@@ -322,18 +324,13 @@ def visualize_voxel_map(environment, highlight_points=None, base_point_size=20):
 def create_example_environment(x,y,z):
     voxel_map = np.zeros((x,y,z), dtype=bool)
     # Add a shape
-    voxel_map[0:x-1, 1:3, 0:z-1] = True
+    #voxel_map[0:x-1, 1:3, 0:z-1] = True
 
     # Add a shape
-    voxel_map[x//2:x//2+1, 0:y, 0:z] = True
-    voxel_map[x-1:x, 0:y//2+1, z//2:z//2] = True
-    voxel_map[x//2-3:x//2-2, 0:y, 0:z] = True
-    voxel_map[0:x//2-2, y//2:y//2+1, 1:z] = True
-    
-
-    # Add a diagonal plane
-    #for i in range(8):
-    #    voxel_map[5+i, 5+i, i] = True
+    #voxel_map[x//2:x//2+1, 0:y, 0:z//2] = True
+    ##voxel_map[x-1:x, 0:y//2+1, z//2:z//2] = True
+    #voxel_map[x//2-3:x//2-2, 0:y, 0:z//2] = True
+    #voxel_map[0:x//2-2, y//2:y//2+1, 1:z] = True
     
     return voxel_map
 
@@ -352,8 +349,8 @@ def mock_lidar(exploration_map,current_pos,lidar_range):
 
 # Define vectors
 def unit_vector_test():
-    vectors = generate_lidar_rays(num_h_rays=96, num_v_rays=16, fov_v=20)
-    origin = np.ones((vectors.shape[0], 3)) * 1.5
+    vectors = generate_lidar_rays(num_h_rays=12, num_v_rays=3, fov_v=60)
+    origin = np.ones((vectors.shape[0], 3)) * 5
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -367,28 +364,32 @@ def unit_vector_test():
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_xlim([0, 3])
-    ax.set_ylim([0, 3])
-    ax.set_zlim([0, 3])
+    ax.set_xlim([0, 10])
+    ax.set_ylim([0, 10])
+    ax.set_zlim([0, 10])
     plt.show()
 
 #testing
 if __name__ == "__main__":
 
     voxel_map = create_example_environment(45,45,45)
+    voxel_map2 = np.copy(voxel_map)
     exploration_map1 = np.full_like(voxel_map, False, dtype=bool)
     exploration_map2 = np.full_like(voxel_map, False, dtype=bool)
     next_pos = (29,28,29)
-    current_pos = (29, 29, 29)
+    current_pos = (22, 22, 22)
     x1, y1, z1 = current_pos
     x2, y2, z2 = next_pos
     print(current_pos)
-
-    num_h_rays = 256
-    num_v_rays = 256
-    fov_v = 90
-    lidar_range = 10
-    voxel_map[:, :, 28] = True
+    #path = a_star_3d(voxel_map, current_pos, next_pos)
+    #for point in path:
+    #    x, y, z = point
+    #    voxel_map[x, y, z] = True
+    num_h_rays = 35
+    num_v_rays = 35
+    fov_v = 175
+    lidar_range = 12
+    #voxel_map[:, :, 28] = True
 
     start_time = time.time()
     lidar_rays = generate_lidar_rays(num_h_rays, num_v_rays, fov_v, lidar_range)
@@ -402,15 +403,18 @@ if __name__ == "__main__":
     assert lidar_rays_pointer is not None
     exploration_map = execute_lidar_rays(gt_voxel_map_lidar_execution_pointer, voxel_map_x, voxel_map_y, voxel_map_z, exploration_map1, current_pos, lidar_range, lidar_rays_pointer, num_rays)
 
-    exploration_map = mock_lidar(exploration_map2,current_pos,lidar_range)
+    #exploration_map = mock_lidar(exploration_map2,current_pos,lidar_range)
 
     print(f"Elapsed time: {time.time() - start_time:.6f} seconds")
 
     voxel_map[current_pos]=True
     exploration_map[current_pos]=True
-    visualize_voxel_maps(exploration_map1, exploration_map2)
+    #visualize_voxel_map(voxel_map2,voxel_map)
     #exploration_map = np.logical_not(exploration_map) #only here is the exploration map inverted of easier visualization
     #visualize_voxel_maps(voxel_map, exploration_map)
-    #visualize_3d_environment(voxel_map)
+    visualize_3d_environment(exploration_map)
     #drone_locations = [np.array([[15, 15, 15], [0, 5, 10], [25, 25, 25]])]
-    #visualize_voxel_map(voxel_map, drone_locations)
+    #voxel_map = np.load('maps/map_0.npy')
+    #visualize_3d_environment(voxel_map)
+    #unit_vector_test()
+    #visualize_voxel_map(voxel_map)

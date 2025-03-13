@@ -315,6 +315,7 @@ class MultiEncoder(nn.Module):
         self.cnn_shapes = {
             k: v for k, v in shapes.items() if len(v) == 3 and re.match(cnn_keys, k)
         }
+
         self.mlp_shapes = {
             k: v
             for k, v in shapes.items()

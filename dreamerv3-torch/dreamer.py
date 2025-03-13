@@ -21,6 +21,9 @@ import torch
 from torch import nn
 from torch import distributions as torchd
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+torch.cuda.empty_cache()
+torch.cuda.reset_peak_memory_stats()
 
 to_np = lambda x: x.detach().cpu().numpy()
 
@@ -155,7 +158,7 @@ def make_env(config, mode, id):
     elif suite == "drone":
         import envs.drone as drone
             
-        env = drone.Drone(task, id, config.size, seed=config.seed + id)
+        env = drone.Drone(task, config.action_repeat, config.size, seed=config.seed + id)
         
         env = wrappers.NormalizeActions(env)
     elif suite == "atari":

@@ -10,35 +10,84 @@ from tqdm import tqdm
 # Example usage:
 
 import numpy as np
+from scipy.ndimage import binary_dilation
+from scipy.spatial import KDTree
 
-def deterministic_benchmark(exploration_map, drone_positions,lidar_range):
+def efficient_frontier_exploration(voxel_map, agent_positions, search_radius=20):
+    """
+    Efficiently compute waypoints for multiple agents using frontier-based exploration.
+    
+    Args:
+        voxel_map (np.ndarray): 3D array where 0 = explored and 1 = unexplored.
+        agent_positions (list): List of tuples [(x, y, z), ...] representing agent positions.
+        search_radius (int): Radius around each agent to search for frontiers.
+        
+    Returns:
+        List of tuples: Waypoints [(x, y, z), ...] for each agent.
+    """
+    # Get the shape of the voxel map
+    shape = voxel_map.shape
+
+    # Create a mask for unexplored areas
+    unexplored_mask = voxel_map == 1
+
+    # Dilate unexplored areas to find frontiers
+    frontier_mask = binary_dilation(unexplored_mask) & ~unexplored_mask
+
+    # Get all frontier voxel indices
+    frontier_voxels = np.argwhere(frontier_mask)
+    if len(frontier_voxels) == 0:
+        # No frontiers, return agent positions (no movement)
+        return agent_positions
+
+    # Build a KD-Tree for fast nearest neighbor search
+    frontier_tree = KDTree(frontier_voxels)
+
+    # Determine waypoints for agents
+    waypoints = []
+    for agent_pos in agent_positions:
+        # Convert agent position to numpy array
+        agent_pos = np.array(agent_pos)
+
+        # Query the KD-Tree for nearby frontiers within the search radius
+        nearby_frontiers = frontier_tree.query_ball_point(agent_pos, search_radius)
+
+        if nearby_frontiers:
+            # If frontiers are found, select the closest one
+            nearest_idx = min(nearby_frontiers, key=lambda idx: np.linalg.norm(frontier_voxels[idx] - agent_pos))
+            waypoint = tuple(frontier_voxels[nearest_idx])
+        else:
+            # No frontiers within the search radius, fallback to the nearest overall
+            _, nearest_idx = frontier_tree.query(agent_pos)
+            waypoint = tuple(frontier_voxels[nearest_idx])
+
+        waypoints.append(waypoint)
+
+    return waypoints
+
+def deterministic_benchmark(exploration_map, drone_positions):
     """
     Determine the next waypoint for each drone for exploration.
     
     Parameters:
         voxel_map (np.ndarray): 3D binary voxel map (0: unexplored, 1: explored).
         drone_positions (list): List of (x, y, z) tuples for drone positions.
-        lidar_range (int): Range of the lidar sensor.
     
     Returns:
         list: List of (x, y, z) waypoints for each drone.
     """
-    available_voxels = np.argwhere(exploration_map == 0)  # Indices of unexplored voxels
+    def find_closest_unexplored(drone_pos, exploration_map):
+        """Find the closest unexplored voxel to the given drone position."""
+        unexplored_voxels = np.argwhere(exploration_map == 0)  # Indices of unexplored voxels
+        if len(unexplored_voxels) == 0:
+            return drone_pos  # No unexplored voxels, return current position
+        
+        distances = np.linalg.norm(unexplored_voxels - np.array(drone_pos), axis=1)
+        closest_voxel = unexplored_voxels[np.argmin(distances)]
+        return tuple(closest_voxel)
 
-    waypoints = []
-
-
-    for i,pos in enumerate(drone_positions):
-        if len(available_voxels) == 0:
-            waypoints.append(tuple(pos))
-        else:
-            distances = np.linalg.norm(available_voxels - np.array(pos), axis=1)
-            closest_voxel = available_voxels[np.argmin(distances)]
-
-            # Remove everything within the lidar range from the available voxels so that the drones don't collide
-            available_voxels = available_voxels[np.linalg.norm(available_voxels - np.array(pos), axis=1) > lidar_range]
-            waypoints.append(tuple(closest_voxel))
-
+    # Compute waypoints for all drones
+    waypoints = [find_closest_unexplored(pos, exploration_map) for pos in drone_positions]
     return waypoints
 
 def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
@@ -58,7 +107,7 @@ def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
     while np.sum(Agents.current_voxel_map) <= exploration_percentage * surface_map_sum and step < max_steps:
         # print(f"Step {step}  |  Exploration: {np.sum(Agents.current_voxel_map) / np.sum(Agents.gt_surface_map) * 100:.2f}%")
         step += 1
-        if np.sum(Agents.current_voxel_map) < 0.99 * surface_map_sum:
+        if np.sum(Agents.current_voxel_map) < 0.9 * surface_map_sum:
             obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k}
             action, agent_state = model(obs, agent_state)
 
@@ -67,11 +116,10 @@ def execute_agent_benchmark(Agents, model, max_steps, exploration_percentage):
             action = (action + 1) / 2
 
             waypoints = Agents.action_to_waypoint(action)
-
             # print(f"Waypoints: {waypoints}")
         else:
-            waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions(), Agents.lidar_range)
-            # waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
+            # waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions())
+            waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
 
         total_steps_performed = Agents.move_all_drones(waypoints)
         obs = [Agents._obs()]
@@ -95,8 +143,8 @@ def execute_deterministic_benchmark(Agents, max_steps, exploration_percentage):
     while np.sum(Agents.current_voxel_map) <= exploration_percentage * surface_map_sum and step < max_steps:
         # print(f"Step {step}  |  Exploration: {np.sum(Agents.current_voxel_map) / np.sum(Agents.gt_surface_map) * 100:.2f}%")
         step += 1
-        waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions(), Agents.lidar_range)
-        # waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
+        # waypoints = deterministic_benchmark(Agents.exploration_map, Agents.get_positions())
+        waypoints = efficient_frontier_exploration(Agents.exploration_map, Agents.get_positions())
 
         total_steps_performed = Agents.move_all_drones(waypoints)
         agent_distance += np.sum(total_steps_performed)
@@ -107,16 +155,16 @@ if __name__ == "__main__":
 
 
     parser = argparse.ArgumentParser(description='Benchmark drone exploration.')
-    parser.add_argument('--map_size', type=int, nargs=3, default=(64, 64, 2), help='Size of the map (x, y, z)')
-    parser.add_argument('--num_drones', type=int, default=3, help='Number of drones')
+    parser.add_argument('--map_size', type=int, nargs=1, default=(64, 64, 27), help='Size of the map (x, y, z)')
+    parser.add_argument('--num_drones', type=int, default=2, help='Number of drones')
     parser.add_argument('--lidar_num_h_rays', type=int, default=32, help='Number of horizontal lidar rays')
     parser.add_argument('--lidar_num_v_rays', type=int, default=32, help='Number of vertical lidar rays')
     parser.add_argument('--lidar_fov_v', type=int, default=180, help='Vertical field of view of the lidar')
-    parser.add_argument('--lidar_range', type=int, default=10, help='Range of the lidar')
+    parser.add_argument('--lidar_range', type=int, default=8, help='Range of the lidar')
     parser.add_argument('--num_runs', type=int, default=10, help='Number of runs for the benchmarks')
-    parser.add_argument('--model_path', type=str, default='logdir/drone-testing-script/latest.pt', help='Path to the trained model')
-    parser.add_argument('--max_steps', type=int, default=120, help='Maximum number of steps for the benchmarks')
-    parser.add_argument('--exploration_percentage', type=float, default=0.99, help='Exploration percentage threshold')
+    parser.add_argument('--model_path', type=str, default='logdir/drone3d/latest.pt', help='Path to the trained model')
+    parser.add_argument('--max_steps', type=int, default=50, help='Maximum number of steps for the benchmarks')
+    parser.add_argument('--exploration_percentage', type=float, default=0.90, help='Exploration percentage threshold')
     args = parser.parse_args()
 
     model_path = args.model_path
@@ -158,7 +206,7 @@ if __name__ == "__main__":
         Agents = MoveDrones(gt_voxel_map=voxel_map,
                             start_positions=spawn_points,
                             lidar_range=lidar_range,
-                            window_size=[64,64],
+                            windows_size=[64,64],
                             lidar_params=lidar_params,
                             num_drones=num_drones,
                             log_images=False)
@@ -174,7 +222,7 @@ if __name__ == "__main__":
         Agents = MoveDrones(gt_voxel_map=voxel_map,
                         start_positions=spawn_points,
                         lidar_range=lidar_range,
-                        window_size=[64,64],
+                        windows_size=[64,64],
                         lidar_params=lidar_params,
                         num_drones=num_drones,
                         log_images=False)

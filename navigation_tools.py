@@ -20,7 +20,6 @@ def a_star_3d(voxel_map, start_pos, goal_pos):#GOAL is part of the steps, START 
     
     dims = voxel_map.shape
     
-    # Check if start or goal is invalid
     assert(not voxel_map[start_pos]), "Current drone position is an obstacle"
     if voxel_map[start_pos] or np.array_equal(start_pos, goal_pos):
         return []  # No path if start or goal is same as start
@@ -83,6 +82,14 @@ def a_star_3d(voxel_map, start_pos, goal_pos):#GOAL is part of the steps, START 
                     
                     # Add neighbor to the priority queue
                     heappush(open_set, (f_score[neighbor], neighbor))
+            elif neighbor == goal_pos and voxel_map[neighbor]:
+                path = []
+                while current in came_from:
+                    path.append(np.array(current))
+                    current = came_from[current]
+                #path.append(np.array(start_pos)) #uncomment if you want current pos to be the first path element, now returns path from start to goal without start
+                return path[::-1]
+
     
     # If we exit the loop without finding the goal, return empty list
     return []

@@ -1,22 +1,22 @@
 #!/bin/bash
 
 # Default values
-# DEFAULT_LOGDIR_PATH="./logdir/drone-testing-script"
-DEFAULT_LOGDIR_PATH="./logdir/drone-newest-higher-train-ratio"
+DEFAULT_LOGDIR_PATH="./logdir/drone3dv4"
 DEFAULT_CONFIG_FLAGS="drone"
 
 # Assign arguments to variables with defaults
-resume=${1:-false}
+reset=${1:-false}
 logdir_path=${2:-$DEFAULT_LOGDIR_PATH}
 shift
 config_flags=${@:-$DEFAULT_CONFIG_FLAGS}
 
 # Delete "gifs" directory recursively
-echo "Deleting gifs directory..."
-rm -rf gifs
-echo "gifs directory deleted."
+# echo "Deleting gifs directory..."
+# rm -rf gifs
+# echo "gifs directory deleted."
 
-if [ "$resume" = false ]; then
+
+if [ "$reset" = true ]; then
     # Delete "logdir" directory recursively
     echo "Deleting logdir directory..."
     rm -rf $logdir_path
